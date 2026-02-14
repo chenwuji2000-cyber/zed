@@ -8327,7 +8327,8 @@ pub async fn find_existing_workspace(
 
     if open_options.open_new_workspace != Some(true) {
         cx.update(|cx| {
-            for window in workspace_windows_for_location(location, cx) {
+            let windows = workspace_windows_for_location(location, cx);
+            for window in &windows {
                 if let Ok(workspace) = window.read(cx) {
                     let project = workspace.project.read(cx);
                     let m = project.visibility_for_paths(
@@ -8336,13 +8337,29 @@ pub async fn find_existing_workspace(
                         cx,
                     );
                     if m > best_match {
-                        existing = Some(window);
+                        existing = Some(*window);
                         best_match = m;
-                    } else if best_match.is_none() && open_options.open_new_workspace == Some(false)
-                    {
-                        existing = Some(window)
                     }
                 }
+            }
+            // When using --add and no window has a path match, use the
+            // ZED_WINDOW_ID env var (set in Zed's terminal sessions) to
+            // route the request back to the originating window.
+            if best_match.is_none() && open_options.open_new_workspace == Some(false) {
+                let target_id = open_options
+                    .env
+                    .as_ref()
+                    .and_then(|env| env.get("ZED_WINDOW_ID"))
+                    .and_then(|id| id.parse::<u64>().ok());
+                existing = target_id
+                    .and_then(|id| {
+                        windows.iter().find(|window| {
+                            window.read(cx).is_ok_and(|workspace| {
+                                workspace.project.entity_id().as_u64() == id
+                            })
+                        }).copied()
+                    })
+                    .or_else(|| windows.into_iter().next());
             }
         });
 
@@ -12454,6 +12471,53 @@ mod tests {
                     .map(|path| path.path.display(PathStyle::local()).into_owned())
             })
             .collect()
+    }
+
+    #[gpui::test]
+    async fn test_find_existing_workspace_routes_add_via_env(cx: &mut TestAppContext) {
+        init_test(cx);
+
+        let fs = FakeFs::new(cx.executor());
+        fs.insert_tree("/root1", json!({ "one.txt": "" }))
+            .await;
+        fs.insert_tree("/root2", json!({ "two.txt": "" }))
+            .await;
+
+        let project1 = Project::test(fs.clone(), ["/root1".as_ref()], cx).await;
+        let project2 = Project::test(fs.clone(), ["/root2".as_ref()], cx).await;
+
+        let project2_entity_id = project2.entity_id().as_u64();
+
+        let _window1 =
+            cx.add_window(|window, cx| Workspace::test_new(project1.clone(), window, cx));
+        let window2 =
+            cx.add_window(|window, cx| Workspace::test_new(project2.clone(), window, cx));
+
+        // Simulate a CLI request from a terminal in window2 by providing
+        // ZED_WINDOW_ID matching project2's entity id.
+        let mut env = HashMap::default();
+        env.insert(
+            "ZED_WINDOW_ID".to_string(),
+            project2_entity_id.to_string(),
+        );
+        let open_options = OpenOptions {
+            open_new_workspace: Some(false),
+            env: Some(env),
+            ..Default::default()
+        };
+        let mut async_cx = cx.to_async();
+        let (found, _) = find_existing_workspace(
+            &[PathBuf::from("/other/path")],
+            &open_options,
+            &SerializedWorkspaceLocation::Local,
+            &mut async_cx,
+        )
+        .await;
+        assert_eq!(
+            found,
+            Some(window2),
+            "With --add, ZED_WINDOW_ID should route to the originating window"
+        );
     }
 
     pub fn init_test(cx: &mut TestAppContext) {

@@ -457,6 +457,7 @@ impl TerminalBuilder {
             }
 
             insert_zed_terminal_env(&mut env, &version);
+            env.insert("ZED_WINDOW_ID".to_string(), window_id.to_string());
 
             #[derive(Default)]
             struct ShellParams {
