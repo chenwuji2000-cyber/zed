@@ -8351,6 +8351,11 @@ pub async fn find_existing_workspace(
                     .as_ref()
                     .and_then(|env| env.get("ZED_WINDOW_ID"))
                     .and_then(|id| id.parse::<u64>().ok());
+                log::info!(
+                    "find_existing_workspace: ZED_WINDOW_ID={:?}, windows={:?}",
+                    target_id,
+                    windows.iter().filter_map(|w| w.read(cx).ok().map(|ws| ws.project.entity_id().as_u64())).collect::<Vec<_>>()
+                );
                 existing = target_id
                     .and_then(|id| {
                         windows.iter().find(|window| {
@@ -8360,6 +8365,7 @@ pub async fn find_existing_workspace(
                         }).copied()
                     })
                     .or_else(|| windows.into_iter().next());
+                log::info!("find_existing_workspace: matched={}", existing.is_some());
             }
         });
 
