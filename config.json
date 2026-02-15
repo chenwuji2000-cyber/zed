@@ -1,13 +1,22 @@
 {
-    "app_name": "Score Tracker",
-    "version": "1.0.0",
+    "app_name": "Student Score Tracker",
+    "version": "2.0.0",
     "database": {
-        "host": "localhost",
+        "host": "db.example.com",
         "port": 5432,
-        "name": "scores_db"
+        "name": "students_db",
+        "pool_size": 10,
+        "timeout_ms": 5000
     },
     "logging": {
-        "level": "info",
-        "file": "app.log"
+        "level": "debug",
+        "file": "app.log",
+        "max_size_mb": 50,
+        "rotate": true
+    },
+    "features": {
+        "grade_calculation": true,
+        "export_csv": true,
+        "email_reports": false
     }
 }
